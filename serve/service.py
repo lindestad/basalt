@@ -432,11 +432,19 @@ class Service:
                 "prefill_tok_s_mean": getattr(self.engine, "prefill_tok_s_mean", None) if busy else None}
         engine = {"model": self.model, "max_context": self.engine.max_context,
                   **dict(getattr(self.engine, "info", {}) or {})}
+        # the conversation cache, live: parked/bytes/evictions as the engine itself last reported them,
+        # against the configured budget and slot count (empty when the cache is off)
+        info = dict(getattr(self.engine, "info", {}) or {})
+        conv = dict(getattr(self.engine, "cache_stats", {}) or {})
+        if info.get("conversation_cache_mib"):
+            conv.setdefault("budget_mib", info["conversation_cache_mib"])
+            conv.setdefault("slots", info.get("conversation_cache_slots") or 0)
         tel = self.telemetry.snapshot() if getattr(self, "telemetry", None) else \
             {"now": {"gpus": []}, "history": {}, "static": {"gpus": []}}
         with self.status_lock:
             best = {k: dict(v) for k, v in self.best.items()}
-        return {"engine": engine, "live": live, "requests": hist[::-1][:REQUESTS_SHOWN], "best": best,
+        return {"engine": engine, "live": live, "conversation_cache": conv,
+                "requests": hist[::-1][:REQUESTS_SHOWN], "best": best,
                 "hardware": tel["now"], "hardware_static": tel["static"], "history": tel["history"]}
 
     def _note_best(self, r: dict) -> None:

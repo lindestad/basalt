@@ -59,6 +59,28 @@ ENGINE_REQUEST = re.compile(
     r"(?P<gen>\d+) generated in (?P<gen_ms>[\d.]+) ms \((?P<tg>[\d.]+) tok/s\)")
 _echoing: set[str] = set()      # logs already followed (restart() re-runs __init__)
 
+CACHE_FACTS = re.compile(
+    # the engine's own summary of the cache, at the end of its park/restore/drop lines;
+    # drop lines carry parked= only, restore lines skip evictions
+    r"conversation cache: (?P<kind>parked|skipped|restored|dropped)\b.*?"
+    r"parked=(?P<parked>\d+)(?: bytes=(?P<bytes>\d+)(?: evictions=(?P<evictions>\d+))?)?")
+
+
+def cache_stats_update(line: str, stats: dict) -> dict | None:
+    """What the conversation cache looks like after this engine log line, or None if the line says nothing."""
+    m = CACHE_FACTS.search(line)
+    if not m:
+        return None
+    fresh = dict(stats)
+    fresh["parked"] = int(m["parked"])
+    if m["bytes"] is not None:
+        fresh["bytes"] = int(m["bytes"])
+    if m["evictions"] is not None:
+        fresh["evictions"] = int(m["evictions"])
+    if m["kind"] == "restored":
+        fresh["restores"] = int(fresh.get("restores", 0)) + 1
+    return fresh
+
 
 def echo_requests(log_path: str, offset: int) -> None:
     """--request-lines: print one stdout line per finished request, parsed from the engine's log summary."""
@@ -214,6 +236,8 @@ class ProcessEngine:
         self.info = {}                   # INFO key=value facts
         self.prefill_tok_s_mean = None
         self.progress = None             # (read, total) prompt tokens, from PP lines
+        self.cache_stats = {}            # live parked/bytes/evictions/restores, read from the engine's lines
+        self._cache_gen = object()       # restart() re-runs __init__: the previous follower retires
         self.silent_note = None
         self.last_err = None
         try:                            # a release's BUILD.json gives its version
@@ -237,6 +261,9 @@ class ProcessEngine:
             if REQUEST_LINES and os.path.abspath(log) not in _echoing:
                 _echoing.add(os.path.abspath(log))
                 threading.Thread(target=echo_requests, args=(log, os.path.getsize(log)), daemon=True).start()
+            # the cache figures the dashboards show: the engine writes them to its log and nowhere else
+            gen = self._cache_gen
+            threading.Thread(target=self._follow_cache, args=(log, gen), daemon=True).start()
         sink = None if log else ProcessEngine.stderr_sink
         self.max_context = 0                            # before the new process is visible: never its predecessor's
         try:
@@ -457,6 +484,22 @@ class ProcessEngine:
             with self.slot_cv:                   # wake the requests that waited through the restart
                 self.slot_cv.notify_all()
         self.info = {**info, **self.info}
+
+    def _follow_cache(self, log: str, gen) -> None:
+        """Track the conversation cache's live figures: the engine writes them to its log and nowhere
+        else. restart() re-runs __init__ and swaps the generation, which retires this tail."""
+        try:
+            f = open(log, "r", encoding="utf-8", errors="replace")
+        except OSError:
+            return
+        f.seek(0, os.SEEK_END)                    # a fresh engine parks its own conversations
+        while self._cache_gen is gen:
+            line = f.readline()
+            if not line:
+                time.sleep(0.4)
+                continue
+            if (fresh := cache_stats_update(line, self.cache_stats)) is not None:
+                self.cache_stats = fresh
 
     def _parse_done(self, line):
         f = line.split()
