@@ -281,10 +281,13 @@ def make_handler(svc: Service):
                              "meta": {"n_ctx": svc.engine.max_context},
                              "architecture": {"input_modalities": ["text", "image"] if svc.vision is not None else ["text"],
                                               "output_modalities": ["text"]}}
+                    if svc.pricing:
+                        model["pricing"] = svc.pricing
                     if not loaded and (svc.idle_unload_s or getattr(svc.engine, "unloaded", False)):
                         model["status"] = {"value": "unloaded"}   # listed, loads on use
                         loaded = True
-                    self._json(200, {"object": "list", "data": [model] if loaded else []})
+                    self._json(200, {"object": "list", "data": [dict(model, id=name) for name in
+                                                               [svc.model, *svc.aliases]] if loaded else []})
             elif path == "/props":
                 if self._authorized():
                     self._props()
@@ -408,7 +411,7 @@ def make_handler(svc: Service):
 
         def _props(self):
             model = parse_qs(urlsplit(self.path).query).get("model", [svc.model])[0]
-            if model != svc.model:
+            if model not in svc.served_names():
                 self._json(404, {"error": {"message": "model not found"}})
                 return
             if not svc.loaded() and not getattr(svc.engine, "unloaded", False):

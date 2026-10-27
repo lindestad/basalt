@@ -54,22 +54,26 @@ DEBUG = False            # --debug: one line per request plus the raw model text
 
 class Service:
     def served_names(self) -> list[str]:
-        """The model names a request may use: the one /v1/models lists, and the model file's own name."""
-        names = [self.model]
+        """The advertised model names and the model file's own name."""
+        names = [self.model, *self.aliases]
         path = getattr(self.engine, "model_path", None)
         if isinstance(path, str) and path:
             names.append(path.replace("\\", "/").rsplit("/", 1)[-1])
-        return names
+        return list(dict.fromkeys(names))
 
     def __init__(self, engine: Engine, tokenizer, template: ChatTemplate, model_name: str = "qwen3.8-flash-next",
                  vision: Vision | None = None, sampling_defaults: dict | None = None,
-                 fit_max_tokens: bool = False, grammar: bool = GRAMMAR_DEFAULT, grammar_engine: bool = True):
+                 fit_max_tokens: bool = False, grammar: bool = GRAMMAR_DEFAULT, grammar_engine: bool = True,
+                 pricing: dict | None = None, aliases: list[str] | None = None):
         self.engine, self.tok, self.template, self.model, self.vision = engine, tokenizer, template, model_name, vision
         self.literals = literal_tags(control_literals(tokenizer))   # control texts that stay text inside a message
         self.fit_max_tokens = fit_max_tokens          # clamp the output cap instead of a 400
         self.grammar = grammar                        # the `grammar` option: every tool or JSON request gets one
         self.grammar_engine = grammar_engine          # the engine understands the request key
         self.sampling_defaults = dict(sampling_defaults or {})   # the model file's sampling defaults
+        self.pricing = dict(pricing or {})
+        self.aliases = list(dict.fromkeys(name.strip() for name in aliases or []
+                                         if name.strip() and name.strip() != self.model))
         self.fifo = threading.Lock()
         self.stopping = threading.Event()               # set at shutdown: nothing starts the engine again
         self.embeddings = threading.local()           # this request's image embeddings file

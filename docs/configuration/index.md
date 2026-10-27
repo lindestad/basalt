@@ -13,6 +13,7 @@ the model file's sampling defaults. For what a setting does to speed, memory and
 - [Speculative decoding (MTP)](#speculative-decoding-mtp)
 - [Parallel slots](#parallel-slots)
 - [Conversation cache](#conversation-cache)
+- [Model pricing for clients](pricing.md)
 - [Vision](#vision)
 - [Control vectors](#control-vectors)
 - [Sampling](#sampling)
@@ -39,7 +40,8 @@ There are two kinds of setting:
   works too (`--control-vector-layer-range 4 44`). It asks the engine binary which flags it accepts, and stops at
   startup on a flag name it does not know.
 
-A config file is one JSON object with two optional blocks:
+A config file is one JSON object with optional `server`, `engine` and
+[pricing](pricing.md) blocks:
 
 ```json
 {
@@ -90,6 +92,7 @@ Server options. Command line `--name`, config `server` block `"name"`.
 | --- | --- | --- | --- |
 | `model` | path | none (required) | The `.basalt` model file. The weights, tokenizer, chat template, drafter, vision projector and default sampling all come from it. |
 | `alias` | string | the name stored in the model file | The model name the API reports. Change it when a client expects a particular name. |
+| `model-alias` | string, repeatable | none | Additional model names accepted in requests and listed with the same pricing in `/models` and `/v1/models`. |
 | `host` | address | `127.0.0.1` | The address to listen on. `127.0.0.1` is this machine only; `0.0.0.0` also serves the network. Never listen beyond `127.0.0.1` without `api-key`. |
 | `port` | integer | `8080` | The TCP port. |
 | `api-key` | string | none | Require this key on `/v1/*` (`Authorization: Bearer ...` or `x-api-key`). Command line only. Set it whenever `host` is not `127.0.0.1`. |
