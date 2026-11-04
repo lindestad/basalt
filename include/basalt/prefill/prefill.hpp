@@ -148,6 +148,8 @@ public:
     /// Off: the peer card's share (set_peer) is skipped, every expert of a chunk stays on this card - while the peer
     /// card runs a stage of the same prompt.
     void set_peer_share(bool on);
+    /// The longest routed-only chunk whose rows of its experts the peer computes (0: no peer share).
+    int64_t peer_routed_rows_max() const;
 
     /// The CPU expert pool (idle while a prompt is read). A chunk below stream_all_min() tokens hands it the
     /// non-resident experts with a host copy that few of its tokens route to, instead of streaming them; their rows
@@ -207,6 +209,7 @@ public:
 
 
 private:
+    struct Run;
     // Stage-1 pipeline: intermediate stages return after handing their chunk to
     // the direct successor. The public run() drains the chain once at prompt end.
     bool run_impl(const int64_t* tokens, int64_t n, int64_t pos0, std::string& err);
@@ -225,7 +228,7 @@ private:
     std::future<bool> next_run_;
     int hand_buf_ = 0;
 
-    bool carve(std::size_t T, void* alloc);   // the device buffers of a chunk (prefill.cpp's Alloc)
+    bool carve(std::size_t T, void* alloc);   // the device buffers of a chunk (src/prefill/layout.hpp's Alloc)
     void release();                          // the destructor's cleanup (also `reset`'s)
     struct Impl;
     std::unique_ptr<Impl> impl_;
